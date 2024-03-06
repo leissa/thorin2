@@ -12,16 +12,15 @@
 ///
 /// ## Operations
 ///
-/// ### %memoir.assoc & %memoir.
+/// ### Constructors: %memoir.assoc & %memoir.empty
 ///
-.ax %memoir.assoc: Π [n: .Nat][K V: *][«n; [K, V]»] -> %memoir.Assoc (K, V);
+.ax %memoir.assoc: Π [K V: *][n: .Nat][«n; [K, V]»] -> %memoir.Assoc (K, V);
 ///
-.lam %memoir.empty(K V: *): %memoir.Assoc (K, V) =
-    %memoir.assoc 0 (K, V) ();
+.lam %memoir.empty(K V: *): %memoir.Assoc (K, V) = %memoir.assoc (K, V) 0 ();
 ///
 /// ## %memoir.read
 ///
-.ax %memoir.read: Π.[K V: *][%memoir.Assoc (K, V), K] -> V, normalize_read;
+.ax %memoir.read:  Π.[K V: *][%memoir.Assoc (K, V), K] -> V, normalize_read;
 ///
 /// ## %memoir.write
 ///
@@ -29,12 +28,12 @@
 ///
 /// ## %memoir.has
 ///
-.ax %memoir.has: Π.[K V: *][%memoir.Assoc (K, V), K] -> .Bool, normalize_has;
+.ax %memoir.has:   Π.[K V: *][%memoir.Assoc (K, V), K] -> .Bool, normalize_has;
 ///
 /// ## %memoir.size
 ///
-.ax %memoir.size: Π.[K V: *][%memoir.Assoc (K, V)] -> .Nat, normalize_size;
+.ax %memoir.size:  Π.[K V: *][%memoir.Assoc (K, V)] -> .Nat, normalize_size;
 ///
 /// ## %memoir.keys
 ///
-.ax %memoir.keys: Π.[K V: *][assoc: %memoir.Assoc (K, V)] -> «%memoir.size assoc; V», normalize_keys;
+.ax %memoir.keys:  Π.[K V: *][assoc: %memoir.Assoc (K, V)] -> «%memoir.size assoc; V», normalize_keys;
