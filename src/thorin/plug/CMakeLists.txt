@@ -7,6 +7,7 @@ set(THORIN_PLUGINS
     demo
     direct
     math
+    memoir
     matrix
     mem
     opt

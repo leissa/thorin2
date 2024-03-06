@@ -1,0 +1,40 @@
+/// # The memoir Plugin {#memoir}
+///
+/// @see thorin::memoir
+///
+/// [TOC]
+///
+/// Based on [MemOIR](https://users.cs.northwestern.edu/~simonec/files/Research/papers/MEMORY_CGO_2024.pdf)
+///
+/// ## Types
+///
+.ax %memoir.Assoc: Π [K V: *] -> *;
+///
+/// ## Operations
+///
+/// ### %memoir.assoc & %memoir.
+///
+.ax %memoir.assoc: Π [n: .Nat][K V: *][«n; [K, V]»] -> %memoir.Assoc (K, V);
+///
+.lam %memoir.empty(K V: *): %memoir.Assoc (K, V) =
+    %memoir.assoc 0 (K, V) ();
+///
+/// ## %memoir.read
+///
+.ax %memoir.read: Π.[K V: *][%memoir.Assoc (K, V), K] -> V, normalize_read;
+///
+/// ## %memoir.write
+///
+.ax %memoir.write: Π.[K V: *][%memoir.Assoc (K, V), K, V] -> %memoir.Assoc (K, V), normalize_write;
+///
+/// ## %memoir.has
+///
+.ax %memoir.has: Π.[K V: *][%memoir.Assoc (K, V), K] -> .Bool, normalize_has;
+///
+/// ## %memoir.size
+///
+.ax %memoir.size: Π.[K V: *][%memoir.Assoc (K, V)] -> .Nat, normalize_size;
+///
+/// ## %memoir.keys
+///
+.ax %memoir.keys: Π.[K V: *][assoc: %memoir.Assoc (K, V)] -> «%memoir.size assoc; V», normalize_keys;
