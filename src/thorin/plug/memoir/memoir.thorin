@@ -36,4 +36,4 @@
 ///
 /// ## %memoir.keys
 ///
-.ax %memoir.keys:  Π.[K V: *][assoc: %memoir.Assoc (K, V)] -> «%memoir.size assoc; V», normalize_keys;
+.ax %memoir.keys:  Π.[K V: *][a: %memoir.Assoc (K, V)] -> «%memoir.size a; V», normalize_keys;

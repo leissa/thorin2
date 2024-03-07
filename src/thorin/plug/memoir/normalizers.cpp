@@ -57,9 +57,14 @@ Ref normalize_has(Ref type, Ref callee, Ref arg) {
     auto [c, k] = arg->projs<2>();
     if (auto assoc = match<memoir::assoc>(c)) {
         if (auto tuple = assoc->arg()->isa<Tuple>()) {
+            bool all_keys_lit = true;
             for (auto kv : tuple->ops()) {
-                if (kv->proj(2, 0) == k) return world.lit_tt();
+                auto key = kv->proj(2, 0);
+                if (key == k) return world.lit_tt();
+                if (!key->isa<Lit>()) key->dump();
+                all_keys_lit &= (bool)key->isa<Lit>();
             }
+            if (all_keys_lit) return world.lit_ff();
         }
     }
     return world.raw_app(type, callee, arg);
