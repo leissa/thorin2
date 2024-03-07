@@ -46,11 +46,11 @@ You can use Thorin either via it's C++-API or the [command-line utility](cli.md)
 
 If you have a [GitHub account setup with SSH](https://docs.github.com/en/authentication/connecting-to-github-with-ssh), just do this:
 ```
-git clone --recurse-submodules git@github.com:AnyDSL/thorin2.git
+git clone --recurse-submodules git@github.com:leissa/thorin2.git
 ```
 Otherwise, clone via HTTPS:
 ```
-git clone --recurse-submodules https://github.com/AnyDSL/thorin2.git
+git clone --recurse-submodules https://github.com/leissa/thorin2.git
 ```
 Then, build with:
 ```
@@ -81,7 +81,7 @@ cmake --build build -j $(nproc) -t install
 
 ## Dependencies
 
-In addition to the provided [submodules](https://github.com/AnyDSL/thorin2/tree/master/external):
+In addition to the provided [submodules](https://github.com/leissa/thorin2/tree/master/external):
 
 * Recent version of [CMake](https://cmake.org/)
 * A C++20-compatible C++ compiler.
