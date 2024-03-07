@@ -138,6 +138,18 @@ template<bool infer> bool Check::alpha_(Ref r1, Ref r2) {
 }
 
 template<bool infer> bool Check::alpha_internal(Ref d1, Ref d2) {
+    if (auto ex = d1->isa<Extract>()) { // HACK
+        if (auto inf = ex->tuple()->isa<Infer>(); inf && inf->op()) {
+            d1 = world().extract(inf->op(), ex->index());
+        }
+    }
+
+    if (auto ex = d2->isa<Extract>()) { // HACK
+        if (auto inf = ex->tuple()->isa<Infer>(); inf && inf->op()) {
+            d2 = world().extract(inf->op(), ex->index());
+        }
+    }
+
     if (!alpha_<infer>(d1->type(), d2->type())) return fail<infer>();
     if (d1->isa<Top>() || d2->isa<Top>()) return infer;
     if (!infer && (d1->isa_mut<Infer>() || d2->isa_mut<Infer>())) return fail<infer>();
@@ -166,7 +178,7 @@ template<bool infer> bool Check::alpha_internal(Ref d1, Ref d2) {
         d1 = umax->rebuild(world(), umax->type(), umax->ops());
     }
 
-    if (d1->node() != d2->node() || d1->flags() != d2->flags() || d1->num_ops() != d2->num_ops()) return fail<infer>();
+    if (d1->node() != d2->node() || (d1->node() != Node::Pi && d1->flags() != d2->flags()) || d1->num_ops() != d2->num_ops()) return fail<infer>();
 
     if (auto var1 = d1->isa<Var>()) {
         auto var2 = d2->as<Var>();

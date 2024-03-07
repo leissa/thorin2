@@ -8,7 +8,7 @@
 ///
 /// ## Types
 ///
-.ax %memoir.Assoc: Π [K V: *] -> *;
+.ax %memoir.Assoc: [K V: *] -> *;
 ///
 /// ## Operations
 ///

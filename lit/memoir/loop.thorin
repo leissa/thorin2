@@ -12,8 +12,8 @@
 
 .fun .extern f(mem: %mem.M, x: %core.I64): [%mem.M, %core.I64] =
     // stack-alloc dictionary and init with: 0 -> 23, 1 -> x
-    .let (`mem, ptr)     = %mem.slot (Assoc, 0) (mem, 0);
-    .let `mem            = %mem.store (mem, ptr, %memoir.assoc KV 2 ((0:%core.I32, 23:%core.I64), (1:%core.I32, x)));
+    .let (`mem, ptr) = %mem.slot (Assoc, 0) (mem, 0);
+    .let `mem        = %mem.store (mem, ptr, %memoir.assoc KV 2 ((0:%core.I32, 23:%core.I64), (1:%core.I32, x)));
 
     .con body (mem: %mem.M);
     .con exit (mem: %mem.M);
@@ -39,7 +39,7 @@
         .con false(mem: %mem.M) =
             next mem;
 
-        .con next (mem: %mem.M) = ;
+        .con next (mem: %mem.M) =
             head mem;
 
         (false, true)#cond (mem);

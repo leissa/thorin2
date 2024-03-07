@@ -1,0 +1,64 @@
+// RUN: rm -f %t.ll
+// RUN: %thorin %s --output-ll %t.ll -o -
+
+.plugin core;
+.plugin memoir;
+.plugin mem;
+
+.fun dont_know(mem: %mem.M): [%mem.M, .Bool];
+
+.let KV = (%core.I32, %core.I64);
+
+.Sigma Assoc: □ = [
+    Assoc:  [*, *] -> *,
+    assoc:  Π [K V: *][n: .Nat][«n; [K, V]»] -> Assoc (K, V),
+    read:   Π.[K V: *][Assoc (K, V), K] -> V,
+    write:  Π.[K V: *][Assoc (K, V), K, V] -> Assoc (K, V),
+    has:    Π.[K V: *][Assoc (K, V), K] -> .Bool,
+];
+
+.fun poly(a: Assoc)(mem: %mem.M, x: %core.I64): [%mem.M, %core.I64] =
+    // stack-alloc dictionary and init with: 0 -> 23, 1 -> x
+    .let (`mem, ptr)     = %mem.slot (a#Assoc KV, 0) (mem, 0);
+    .let `mem            = %mem.store (mem, ptr, a#assoc KV 2 ((0:%core.I32, 23:%core.I64), (1:%core.I32, x)));
+
+    .con body (mem: %mem.M);
+    .con exit (mem: %mem.M);
+
+    .con head(mem: %mem.M) =
+        .ret (`mem, cond) = dont_know $ (mem);
+        (exit, body)#cond mem;
+
+    .con body(mem: %mem.M) =
+        .let (`mem, `assoc) = %mem.load (mem, ptr);
+        .let `assoc         = a#write (assoc, 1:%core.I32, 42:%core.I64); // 1 -> 42
+        .let `mem           = %mem.store (mem, ptr, assoc);
+        .let cond           = a#has (assoc, 1:%core.I32);
+
+        .con next (mem: %mem.M);
+
+        .con true (mem: %mem.M) =
+            .let (`mem, `assoc) = %mem.load (mem, ptr);
+            .let `assoc         = a#write (assoc, 1:%core.I32, x); // 1 -> x
+            .let `mem           = %mem.store (mem, ptr, assoc);
+            next mem;
+
+        .con false(mem: %mem.M) =
+            next mem;
+
+        .con next (mem: %mem.M) =
+            head mem;
+
+        (false, true)#cond (mem);
+
+    .con exit(mem: %mem.M) =
+        .let (`mem, `assoc) = %mem.load (mem, ptr);
+        .let val            = a#read (assoc, 1:%core.I32);
+
+        return (mem, val);
+
+    head mem;
+
+.let assoc = (%memoir.Assoc, %memoir.assoc, %memoir.read, %memoir.write, %memoir.has);
+
+.fun .extern f(mem: %mem.M, x: %core.I64): [%mem.M, %core.I64] = poly assoc ((mem, x), return);
