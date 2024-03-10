@@ -9,7 +9,7 @@
 
 .let KV = (%core.I32, %core.I64);
 
-.Sigma Assoc: □ = [
+.let Assoc = [
     Assoc:  [*, *] -> *,
     assoc:  Π [K V: *][n: .Nat][«n; [K, V]»] -> Assoc (K, V),
     read:   Π.[K V: *][Assoc (K, V), K] -> V,
