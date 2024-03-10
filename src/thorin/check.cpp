@@ -178,7 +178,7 @@ template<bool infer> bool Check::alpha_internal(Ref d1, Ref d2) {
         d1 = umax->rebuild(world(), umax->type(), umax->ops());
     }
 
-    if (d1->node() != d2->node() || (d1->node() != Node::Pi && d1->flags() != d2->flags()) || d1->num_ops() != d2->num_ops()) return fail<infer>();
+    if (d1->node() != d2->node() || d1->flags() != d2->flags() || d1->num_ops() != d2->num_ops()) return fail<infer>();
 
     if (auto var1 = d1->isa<Var>()) {
         auto var2 = d2->as<Var>();
