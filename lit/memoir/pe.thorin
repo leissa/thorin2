@@ -5,48 +5,42 @@
 .plugin mem;
 .plugin memoir;
 
-.let KV    = (%core.I32, %core.I64);
+.let KV    = (.I32, .I64);
 .let Assoc = %memoir.Assoc KV;
 
-.fun .extern f(mem: %mem.M, x: %core.I64): [%mem.M, %core.I64] =
-    .con body (mem: %mem.M);
-    .con exit (mem: %mem.M);
-    .con true (mem: %mem.M);
-    .con false(mem: %mem.M);
-    .con next (mem: %mem.M);
-
+.fun .extern f(mem: %mem.M, x: .I64): [%mem.M, .I64] =
     .let (`mem, pa) = %mem.slot (Assoc, 0) (mem, 0);
-    .let (`mem, ps) = %mem.slot (%core.I64, 0) (mem, 1);
-    .let `mem       = %mem.store (mem, pa, %memoir.assoc KV 3 ((1:%core.I32, 23:%core.I64), (3:%core.I32, 42:%core.I64), (7:%core.I32, x)));
-    .let `mem       = %mem.store (mem, ps, 0:%core.I64);
+    .let (`mem, ps) = %mem.slot (.I64, 0) (mem, 1);
+    .let `mem       = %mem.store (mem, pa, %memoir.assoc KV 3 ((1I32, 23I64), (3I32, 42I64), (7I32, x)));
+    .let `mem       = %mem.store (mem, ps, 0I64);
+    head (mem, 0I32)
+    .where
+        .con head(mem: %mem.M, i: .I32)@.tt =
+            .let cond = %core.icmp.ul (i, 10I32);
+            (exit, body)#cond mem
+            .where
+                .con body(mem: %mem.M) =
+                    .let (`mem, `assoc) = %mem.load (mem, pa);
+                    .let cond           = %memoir.has (assoc, i);
+                    (false, true)#cond mem
+                    .where
+                        .con true(mem: %mem.M) =
+                            .let val        = %memoir.read (assoc, i);
+                            .let (`mem, `s) = %mem.load (mem, ps);
+                            .let `s         = %core.wrap.add 0 (s, val);
+                            .let `mem       = %mem.store (mem, ps, s);
+                            next mem;
 
-    .con head(mem: %mem.M, i: %core.I32)@(.tt) =
-        .let cond = %core.icmp.ul (i, 10:%core.I32);
+                        .con false(mem: %mem.M) =
+                            next mem;
 
-        .con body(mem: %mem.M) =
-            .let (`mem, `assoc) = %mem.load (mem, pa);
-            .let cond           = %memoir.has (assoc, i);
+                        .con next (mem: %mem.M) =
+                            .let `i = %core.wrap.add 0 (i, 1I32);
+                            head (mem, i);
+                    .end;
 
-            .con true (mem: %mem.M) =
-                .let val        = %memoir.read (assoc, i);
-                .let (`mem, `s) = %mem.load (mem, ps);
-                .let `s         = %core.wrap.add 0 (s, val);
-                .let `mem       = %mem.store (mem, ps, s);
-                next mem;
-
-            .con false(mem: %mem.M) =
-                next mem;
-
-            .con next (mem: %mem.M) =
-                .let `i = %core.wrap.add 0 (i, 1:%core.I32);
-                head (mem, i);
-
-            (false, true)#cond (mem);
-
-        (exit, body)#cond mem;
-
-    .con exit(mem: %mem.M) =
-        .let (`mem, `s) = %mem.load (mem, ps);
-        return (mem, s);
-
-    head (mem, 0:%core.I32);
+                .con exit(mem: %mem.M) =
+                    .let (`mem, `s) = %mem.load (mem, ps);
+                    return (mem, s);
+            .end
+    .end

@@ -4,9 +4,9 @@
 .plugin core;
 .plugin memoir;
 
-.fun .extern f(mem: %mem.M): [%mem.M, %core.I64] =
-    .let `assoc = %memoir.empty (%core.I32, %core.I64);
-    .let `assoc = %memoir.write (assoc, 0:%core.I32, 10:%core.I64);
-    .let `assoc = %memoir.write (assoc, 1:%core.I32, 11:%core.I64);
-    .let val    = %memoir.read  (assoc, 0:%core.I32);
+.fun .extern f(mem: %mem.M): [%mem.M, .I64] =
+    .let `assoc = %memoir.empty (.I32, .I64);
+    .let `assoc = %memoir.write (assoc, 0I32, 10I64);
+    .let `assoc = %memoir.write (assoc, 1I32, 11I64);
+    .let val    = %memoir.read  (assoc, 0I32);
     return (mem, val);

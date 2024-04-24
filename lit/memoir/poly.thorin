@@ -5,9 +5,11 @@
 .plugin mem;
 .plugin memoir;
 
-.fun dont_know(mem: %mem.M): [%mem.M, .Bool];
+// a + b * c
 
-.let KV = (%core.I32, %core.I64);
+.cfun dont_know[mem: %mem.M]: [%mem.M, .Bool];
+
+.let KV = (.I32, .I64);
 
 .let Assoc = [
     Assoc:  [*, *] -> *,
@@ -19,47 +21,40 @@
     keys:   Π.[K V: *][a: Assoc (K, V)] -> «size a; V»,
 ];
 
-.fun poly(a: Assoc)(mem: %mem.M, x: %core.I64): [%mem.M, %core.I64] =
-    .con body (mem: %mem.M);
-    .con exit (mem: %mem.M);
-    .con next (mem: %mem.M);
-
+.fun poly(a: Assoc)(mem: %mem.M, x: .I64): [%mem.M, .I64] =
     // stack-alloc dictionary and init with: 0 -> 23, 1 -> x
     .let (`mem, ptr) = %mem.slot (a#Assoc KV, 0) (mem, 0);
-    .let `mem        = %mem.store (mem, ptr, a#assoc KV 2 ((0:%core.I32, 23:%core.I64), (1:%core.I32, x)));
+    .let `mem        = %mem.store (mem, ptr, a#assoc KV 2 ((0I32, 23I64), (1I32, x)));
+    head mem
+    .where
+        .con head(mem: %mem.M) =
+            .ret (`mem, cond) = dont_know $ mem;
+            (exit, body)#cond mem
+            .where
+                .con body(mem: %mem.M) =
+                    .let (`mem, `assoc) = %mem.load (mem, ptr);
+                    .let `assoc         = a#write (assoc, 1I32, 42I64); // 1 -> 42
+                    .let `mem           = %mem.store (mem, ptr, assoc);
+                    .let cond           = a#has (assoc, 1I32);
+                    (false, true)#cond mem
+                    .where
+                        .con true (mem: %mem.M) =
+                            .let (`mem, `assoc) = %mem.load (mem, ptr);
+                            .let `assoc         = a#write (assoc, 1I32, x); // 1 -> x
+                            .let `mem           = %mem.store (mem, ptr, assoc);
+                            next mem;
+                        .con false(mem: %mem.M) = next mem;
+                        .con next (mem: %mem.M) = head mem;
+                    .end;
+                .con exit(mem: %mem.M) =
+                    .let (`mem, `assoc) = %mem.load (mem, ptr);
+                    .let val            = a#read (assoc, 1I32);
+                    return (mem, val);
+            .end
+    .end;
 
-    .con head(mem: %mem.M) =
-        .ret (`mem, cond) = dont_know $ (mem);
-        (exit, body)#cond mem;
-
-    .con body(mem: %mem.M) =
-        .let (`mem, `assoc) = %mem.load (mem, ptr);
-        .let `assoc         = a#write (assoc, 1:%core.I32, 42:%core.I64); // 1 -> 42
-        .let `mem           = %mem.store (mem, ptr, assoc);
-        .let cond           = a#has (assoc, 1:%core.I32);
-
-        .con true (mem: %mem.M) =
-            .let (`mem, `assoc) = %mem.load (mem, ptr);
-            .let `assoc         = a#write (assoc, 1:%core.I32, x); // 1 -> x
-            .let `mem           = %mem.store (mem, ptr, assoc);
-            next mem;
-
-        .con false(mem: %mem.M) =
-            next mem;
-
-        .con next (mem: %mem.M) =
-            head mem;
-
-        (false, true)#cond (mem);
-
-    .con exit(mem: %mem.M) =
-        .let (`mem, `assoc) = %mem.load (mem, ptr);
-        .let val            = a#read (assoc, 1:%core.I32);
-        return (mem, val);
-
-    head mem;
 
 .let assoc = (%memoir.Assoc, %memoir.assoc, %memoir.read, %memoir.write, %memoir.has, %memoir.size, %memoir.keys);
 
 // I can't have a polymorphic function as extern at the moment, so I instantiate here:
-.fun .extern f(mem: %mem.M, x: %core.I64): [%mem.M, %core.I64] = poly assoc ((mem, x), return);
+.fun .extern f(mem: %mem.M, x: .I64): [%mem.M, .I64] = poly assoc ((mem, x), return);
