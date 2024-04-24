@@ -2,19 +2,16 @@
 #include <cstring>
 
 #include <fstream>
-#include <iostream>
+
 #include <lyra/lyra.hpp>
-#include <stdexcept>
+#include <rang.hpp>
 
 #include "thorin/config.h"
 #include "thorin/driver.h"
 
-#include "thorin/be/dot/dot.h"
+#include "thorin/ast/parser.h"
 #include "thorin/be/h/bootstrap.h"
-#include "thorin/fe/parser.h"
 #include "thorin/pass/optimize.h"
-#include "thorin/pass/pass.h"
-#include "thorin/pass/pipelinebuilder.h"
 #include "thorin/phase/phase.h"
 #include "thorin/util/sys.h"
 
@@ -22,7 +19,7 @@ using namespace thorin;
 using namespace std::literals;
 
 int main(int argc, char** argv) {
-    enum Backends { D, Dot, H, LL, Md, Thorin, Num_Backends };
+    enum Backends { AST, D, Dot, H, LL, Md, Thorin, Num_Backends };
 
     try {
         static const auto version = "thorin command-line utility version " THORIN_VER "\n";
@@ -31,9 +28,11 @@ int main(int argc, char** argv) {
         bool show_help         = false;
         bool show_version      = false;
         bool list_search_paths = false;
+        bool dot_follow_types  = false;
+        bool dot_all_annexes   = false;
         std::string input, prefix;
         std::string clang = sys::find_cmd("clang");
-        std::vector<std::string> plugins, search_paths;
+        std::vector<std::string> inputs, search_paths;
 #ifdef THORIN_ENABLE_CHECKS
         std::vector<size_t> breakpoints;
 #endif
@@ -49,17 +48,21 @@ int main(int argc, char** argv) {
             | lyra::opt(show_version                          )["-v"]["--version"               ]("Display version info and exit.")
             | lyra::opt(list_search_paths                     )["-l"]["--list-search-paths"     ]("List search paths in order and exit.")
             | lyra::opt(clang,          "clang"               )["-c"]["--clang"                 ]("Path to clang executable (default: '" THORIN_WHICH " clang').")
-            | lyra::opt(plugins,        "plugin"              )["-p"]["--plugin"                ]("Dynamically load plugin.")
+            | lyra::opt(inputs,         "plugin"              )["-p"]["--plugin"                ]("Dynamically load plugin.")
             | lyra::opt(search_paths,   "path"                )["-P"]["--plugin-path"           ]("Path to search for plugins.")
             | lyra::opt(inc_verbose                           )["-V"]["--verbose"               ]("Verbose mode. Multiple -V options increase the verbosity. The maximum is 4.").cardinality(0, 4)
             | lyra::opt(opt,            "level"               )["-O"]["--optimize"              ]("Optimization level (default: 2).")
+            | lyra::opt(output[AST   ], "file"                )      ["--output-ast"            ]("Directly emits AST represntation of input.")
             | lyra::opt(output[D     ], "file"                )      ["--output-d"              ]("Emits dependency file containing a rule suitable for 'make' describing the dependencies of the source file (requires --output-h).")
             | lyra::opt(output[Dot   ], "file"                )      ["--output-dot"            ]("Emits the Thorin program as a graph using Graphviz' DOT language.")
             | lyra::opt(output[H     ], "file"                )      ["--output-h"              ]("Emits a header file to be used to interface with a plugin in C++.")
             | lyra::opt(output[LL    ], "file"                )      ["--output-ll"             ]("Compiles the Thorin program to LLVM.")
             | lyra::opt(output[Md    ], "file"                )      ["--output-md"             ]("Emits the input formatted as Markdown.")
             | lyra::opt(output[Thorin], "file"                )["-o"]["--output-thorin"         ]("Emits the Thorin program again.")
+            | lyra::opt(flags.ascii                           )["-a"]["--ascii"                 ]("Use ASCII alternatives in output instead of UTF-8.")
             | lyra::opt(flags.bootstrap                       )      ["--bootstrap"             ]("Puts thorin into \"bootstrap mode\". This means a '.plugin' directive has the same effect as an '.import' and will not load a library. In addition, no standard plugins will be loaded.")
+            | lyra::opt(dot_follow_types                      )      ["--dot-follow-types"      ]("Follow type dependencies in DOT output.")
+            | lyra::opt(dot_all_annexes                       )      ["--dot-all-annexes"       ]("Output all annexes - even if unused - in DOT output.")
             | lyra::opt(flags.dump_gid, "level"               )      ["--dump-gid"              ]("Dumps gid of inline expressions as a comment in output if <level> > 0. Use a <level> of 2 to also emit the gid of trivial defs.")
             | lyra::opt(flags.dump_recursive                  )      ["--dump-recursive"        ]("Dumps Thorin program with a simple recursive algorithm that is not readable again from Thorin but is less fragile and also works for broken Thorin programs.")
             | lyra::opt(flags.aggressive_lam_spec             )      ["--aggr-lam-spec"         ]("Overrides LamSpec behavior to follow recursive calls.")
@@ -120,59 +123,79 @@ int main(int argc, char** argv) {
             }
         }
 
-        // we always need standard plugins, as long as we are not in bootstrap mode
-        if (!flags.bootstrap) plugins.insert(plugins.end(), {"core", "mem", "compile", "opt"});
-
-        if (!plugins.empty())
-            for (const auto& plugin : plugins) driver.load(plugin);
-
         if (input.empty()) throw std::invalid_argument("error: no input given");
         if (input[0] == '-' || input.substr(0, 2) == "--")
             throw std::invalid_argument("error: unknown option " + input);
 
-        auto path = fs::path(input);
-        world.set(path.filename().replace_extension().string());
-        auto parser = Parser(world);
-        parser.import(driver.sym(input), os[Md]);
+        // we always need standard plugins, as long as we are not in bootstrap mode
+        if (!flags.bootstrap) {
+            inputs.insert(inputs.begin(), "compile"s);
+            if (opt >= 2) inputs.emplace_back("opt"s);
+        }
 
-        if (auto dep = os[D]) {
-            if (auto autogen_h = output[H]; !autogen_h.empty()) {
-                *dep << autogen_h << ": ";
-                assert(!driver.imports().empty());
-                for (auto sep = ""; const auto& [path, _] : driver.imports() | std::views::drop(1)) {
-                    *dep << sep << path;
-                    sep = " \\\n ";
-                }
-            } else {
-                throw std::invalid_argument("error: --output-d requires --output-h");
+        inputs.emplace_back(input);
+
+        try {
+            auto path = fs::path(input);
+            world.set(path.filename().replace_extension().string());
+
+            auto ast    = ast::AST(world);
+            auto parser = ast::Parser(ast);
+            ast::Ptrs<ast::Import> imports;
+            for (size_t i = 0, e = inputs.size(); i != e; ++i) {
+                auto input = inputs[i];
+                auto tag   = i + 1 == e ? ast::Tok::Tag::K_import : ast::Tok::Tag::K_plugin;
+                auto mod   = i + 1 == e ? parser.import(driver.sym(input), os[Md]) : parser.plugin(input);
+                imports.emplace_back(ast.ptr<ast::Import>(Loc(), tag, Dbg(driver.sym(input)), std::move(mod)));
             }
-            *dep << std::endl;
-        }
 
-        if (flags.bootstrap) {
-            if (auto h = os[H])
-                bootstrap(driver, world.sym(fs::path{path}.filename().replace_extension().string()), *h);
-            opt = std::min(opt, 1);
-        }
+            auto mod = ast.ptr<ast::Module>(imports.back()->loc(), std::move(imports), ast::Ptrs<ast::ValDecl>());
+            mod->compile(ast);
 
-        switch (opt) {
-            case 0: break;
-            case 1: Phase::run<Cleanup>(world); break;
-            case 2:
-                parser.import("opt");
-                optimize(world);
-                break;
-            default: error("illegal optimization level '{}'", opt);
-        }
+            if (auto s = os[AST]) {
+                Tab tab;
+                mod->stream(tab, *s);
+            }
 
-        if (os[Thorin]) world.dump(*os[Thorin]);
-        if (os[Dot]) dot::emit(world, *os[Dot]);
+            if (auto dep = os[D]) {
+                if (auto autogen_h = output[H]; !autogen_h.empty()) {
+                    *dep << autogen_h << ": ";
+                    assert(!driver.imports().empty());
+                    for (auto sep = ""; const auto& [path, _] : driver.imports() | std::views::drop(1)) {
+                        *dep << sep << path;
+                        sep = " \\\n ";
+                    }
+                } else {
+                    throw std::invalid_argument("error: --output-d requires --output-h");
+                }
+                *dep << std::endl;
+            }
 
-        if (os[LL]) {
-            if (auto backend = driver.backend("ll"))
-                backend(world, *os[LL]);
-            else
-                error("'ll' emitter not loaded; try loading 'mem' plugin");
+            if (flags.bootstrap) {
+                if (auto h = os[H])
+                    bootstrap(driver, world.sym(fs::path{path}.filename().replace_extension().string()), *h);
+                opt = std::min(opt, 1);
+            }
+
+            switch (opt) {
+                case 0: break;
+                case 1: Phase::run<Cleanup>(world); break;
+                case 2: optimize(world); break;
+                default: error("illegal optimization level '{}'", opt);
+            }
+
+            if (auto s = os[Dot]) world.dot(*s, dot_all_annexes, dot_follow_types);
+            if (auto s = os[Thorin]) world.dump(*s);
+
+            if (auto s = os[LL]) {
+                if (auto backend = driver.backend("ll"))
+                    backend(world, *s);
+                else
+                    error("'ll' emitter not loaded; try loading 'mem' plugin");
+            }
+        } catch (const Error& e) { // e.loc.path doesn't exist anymore in outer scope so catch Error here
+            std::cerr << e;
+            return EXIT_FAILURE;
         }
     } catch (const std::exception& e) {
         errln("{}", e.what());

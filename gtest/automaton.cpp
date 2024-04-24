@@ -8,7 +8,7 @@
 
 #include <thorin/world.h>
 
-#include <thorin/fe/parser.h>
+#include <thorin/ast/ast.h>
 
 #include <thorin/plug/regex/dfa2matcher.h>
 #include <thorin/plug/regex/regex2nfa.h>
@@ -155,12 +155,11 @@ TEST(Automaton, NFAAorBplusA) {
 
 TEST(Automaton, Regex2NFA) {
     Driver driver;
-    World& w    = driver.world();
-    auto parser = Parser(w);
-    for (auto plugin : {"compile", "mem", "core", "math", "regex"}) parser.plugin(plugin);
+    World& w = driver.world();
+    ast::load_plugins(w, {"compile", "mem", "core", "math", "regex"});
 
     auto pattern = w.call<regex::conj>(
-        2, w.tuple({w.call<regex::lit>(w.lit_idx(256, 'a')), w.call<regex::lit>(w.lit_idx(256, 'b'))})); // (a & b)
+        2, w.tuple({w.call<regex::lit>(w.lit_i8('a')), w.call<regex::lit>(w.lit_i8('b'))})); // (a & b)
     pattern->dump(10);
     auto nfa = regex::regex2nfa(driver.GET_FUN_PTR("regex", regex2nfa), pattern);
     std::cout << *nfa;
@@ -168,15 +167,13 @@ TEST(Automaton, Regex2NFA) {
 
 TEST(Automaton, Regex2NFAAorBplusA) {
     Driver driver;
-    World& w    = driver.world();
-    auto parser = Parser(w);
-    for (auto plugin : {"compile", "mem", "core", "math", "regex"}) parser.plugin(plugin);
+    World& w = driver.world();
+    ast::load_plugins(w, {"compile", "mem", "core", "math", "regex"});
 
     auto pattern = w.call<regex::conj>(
-        2,
-        w.tuple({w.call(regex::quant::plus, w.call<regex::disj>(2, w.tuple({w.call<regex::lit>(w.lit_idx(256, 'a')),
-                                                                            w.call<regex::lit>(w.lit_idx(256, 'b'))}))),
-                 w.call<regex::lit>(w.lit_idx(256, 'a'))})); // (a & b)
+        2, w.tuple({w.call(regex::quant::plus, w.call<regex::disj>(2, w.tuple({w.call<regex::lit>(w.lit_i8('a')),
+                                                                               w.call<regex::lit>(w.lit_i8('b'))}))),
+                    w.call<regex::lit>(w.lit_i8('a'))})); // (a & b)
     pattern->dump(10);
     auto nfa = regex::regex2nfa(driver.GET_FUN_PTR("regex", regex2nfa), pattern);
     std::cout << *nfa;
@@ -188,16 +185,15 @@ TEST(Automaton, Regex2NFAAorBplusA) {
 
 TEST(Automaton, Regex2NFA1or5or9) {
     Driver driver;
-    World& w    = driver.world();
-    auto parser = Parser(w);
-    for (auto plugin : {"compile", "mem", "core", "math", "regex"}) parser.plugin(plugin);
+    World& w = driver.world();
+    auto ast = ast::AST(w);
+    ast::load_plugins(w, {"compile", "mem", "core", "math", "regex"});
 
-    // %regex.disj 2 (%regex.disj 2 (%regex.range ‹2; 49:(.Idx 256)›, %regex.range ‹2; 53:(.Idx 256)›), %regex.range ‹2;
-    // 57:(.Idx 256)›)
-    auto pattern
-        = w.call<regex::disj>(2, w.tuple({w.call<regex::disj>(2, w.tuple({w.call<regex::lit>(w.lit_idx(256, '1')),
-                                                                          w.call<regex::lit>(w.lit_idx(256, '5'))})),
-                                          w.call<regex::lit>(w.lit_idx(256, '9'))}));
+    // %regex.disj 2 (%regex.disj 2 (%regex.range ‹2; 49I8›, %regex.range ‹2; 53I8›), %regex.range ‹2;
+    // 57I8›)
+    auto pattern = w.call<regex::disj>(2, w.tuple({w.call<regex::disj>(2, w.tuple({w.call<regex::lit>(w.lit_i8('1')),
+                                                                                   w.call<regex::lit>(w.lit_i8('5'))})),
+                                                   w.call<regex::lit>(w.lit_i8('9'))}));
     pattern->dump(10);
     auto nfa = regex::regex2nfa(driver.GET_FUN_PTR("regex", regex2nfa), pattern);
     std::cout << *nfa;
@@ -209,16 +205,15 @@ TEST(Automaton, Regex2NFA1or5or9) {
 
 TEST(Automaton, Regex2NFANot1or5or9) {
     Driver driver;
-    World& w    = driver.world();
-    auto parser = Parser(w);
-    for (auto plugin : {"compile", "mem", "core", "math", "regex"}) parser.plugin(plugin);
+    World& w = driver.world();
+    ast::load_plugins(w, {"compile", "mem", "core", "math", "regex"});
 
-    // %regex.not_ (%regex.disj 2 (%regex.disj 2 (%regex.range ‹2; 49:(.Idx 256)›, %regex.range ‹2; 53:(.Idx 256)›),
-    // %regex.range ‹2; 57:(.Idx 256)›))
+    // %regex.not_ (%regex.disj 2 (%regex.disj 2 (%regex.range ‹2; 49I8›, %regex.range ‹2; 53I8›),
+    // %regex.range ‹2; 57I8›))
     auto pattern = w.call<regex::not_>(w.call<regex::disj>(
-        2, w.tuple({w.call<regex::disj>(
-                        2, w.tuple({w.call<regex::lit>(w.lit_idx(256, '1')), w.call<regex::lit>(w.lit_idx(256, '5'))})),
-                    w.call<regex::lit>(w.lit_idx(256, '9'))})));
+        2, w.tuple(
+               {w.call<regex::disj>(2, w.tuple({w.call<regex::lit>(w.lit_i8('1')), w.call<regex::lit>(w.lit_i8('5'))})),
+                w.call<regex::lit>(w.lit_i8('9'))})));
     pattern->dump(10);
     auto nfa = regex::regex2nfa(driver.GET_FUN_PTR("regex", regex2nfa), pattern);
     std::cout << *nfa;
@@ -230,9 +225,8 @@ TEST(Automaton, Regex2NFANot1or5or9) {
 
 TEST(Automaton, Regex2NFANotwds) {
     Driver driver;
-    World& w    = driver.world();
-    auto parser = Parser(w);
-    for (auto plugin : {"compile", "mem", "core", "math", "regex"}) parser.plugin(plugin);
+    World& w = driver.world();
+    ast::load_plugins(w, {"compile", "mem", "core", "math", "regex"});
 
     // %regex.not_ (%regex.conj 3 (%regex.cls.w, %regex.cls.d, %regex.cls.s))
     auto pattern = w.call<regex::not_>(

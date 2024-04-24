@@ -90,8 +90,8 @@ std::tuple<Ref, Ref, Ref> clos_unpack(Ref c) {
     // auto& w       = c->world();
     // auto env_type = c->proj(0_u64);
     // // auto pi       = clos_type_to_pi(c->type(), env_type);
-    // auto fn       = w.extract(c, w.lit_int(3, 1));
-    // auto env      = w.extract(c, w.lit_int(3, 2));
+    // auto fn       = w.extract(c, w.lit_idx(3, 1));
+    // auto env      = w.extract(c, w.lit_idx(3, 2));
     // return {env_type, fn, env};
     auto [ty, pi, env] = c->projs<3>();
     return {ty, pi, env};
@@ -118,7 +118,11 @@ const Sigma* isa_clos_type(Ref def) {
     return (pi && Pi::isa_cn(pi) && pi->num_ops() > 1_u64 && pi->dom(Clos_Env_Param) == var) ? sig : nullptr;
 }
 
-Sigma* clos_type(const Pi* pi) { return ctype(pi->world(), pi->doms(), nullptr)->as_mut<Sigma>(); }
+Sigma* clos_type(const Pi* pi) {
+    auto& w   = pi->world();
+    auto doms = pi->doms();
+    return ctype(w, doms, nullptr)->as_mut<Sigma>();
+}
 
 const Pi* clos_type_to_pi(Ref ct, Ref new_env_type) {
     assert(isa_clos_type(ct));

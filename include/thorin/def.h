@@ -1,7 +1,6 @@
 #pragma once
 
 #include <optional>
-#include <vector>
 
 #include <fe/assert.h>
 #include <fe/cast.h>
@@ -10,7 +9,7 @@
 
 #include "thorin/util/dbg.h"
 #include "thorin/util/hash.h"
-#include "thorin/util/print.h"
+#include "thorin/util/pool.h"
 #include "thorin/util/util.h"
 #include "thorin/util/vector.h"
 
@@ -35,9 +34,15 @@
 namespace thorin {
 
 namespace Node {
+
 #define CODE(node, name) node,
 enum : node_t { THORIN_NODE(CODE) };
 #undef CODE
+
+#define CODE(node, name) +size_t(1)
+constexpr auto Num_Nodes = size_t(0) THORIN_NODE(CODE);
+#undef CODE
+
 } // namespace Node
 
 class App;
@@ -62,6 +67,7 @@ using DefVec                    = Vector<const Def*>;
 template<class To> using MutMap = GIDMap<Def*, To>;
 using MutSet                    = GIDSet<Def*>;
 using Mut2Mut                   = MutMap<Def*>;
+using Muts                      = PooledSet<Def*>;
 ///@}
 
 /// @name Var
@@ -70,6 +76,7 @@ using Mut2Mut                   = MutMap<Def*>;
 template<class To> using VarMap = GIDMap<const Var*, To>;
 using VarSet                    = GIDSet<const Var*>;
 using Var2Var                   = VarMap<const Var*>;
+using Vars                      = PooledSet<const Var*>;
 ///@{
 
 //------------------------------------------------------------------------------
@@ -164,20 +171,20 @@ THORIN_ENUM_OPERATORS(Dep)
 
 // clang-format off
 /// Use as mixin to declare setters for Def::loc \& Def::name using a *covariant* return type.
-#define THORIN_SETTERS_(T)                                                                                                 \
-public:                                                                                                                    \
-    template<bool Ow = false> const T* set(Loc l               ) const { if (Ow || !dbg_.loc) dbg_.loc = l; return this; } \
-    template<bool Ow = false>       T* set(Loc l               )       { if (Ow || !dbg_.loc) dbg_.loc = l; return this; } \
-    template<bool Ow = false> const T* set(       Sym s        ) const { if (Ow || !dbg_.sym) dbg_.sym = s; return this; } \
-    template<bool Ow = false>       T* set(       Sym s        )       { if (Ow || !dbg_.sym) dbg_.sym = s; return this; } \
-    template<bool Ow = false> const T* set(       std::string s) const {         set(sym(std::move(s))); return this; }    \
-    template<bool Ow = false>       T* set(       std::string s)       {         set(sym(std::move(s))); return this; }    \
-    template<bool Ow = false> const T* set(Loc l, Sym s        ) const { set(l); set(s);                 return this; }    \
-    template<bool Ow = false>       T* set(Loc l, Sym s        )       { set(l); set(s);                 return this; }    \
-    template<bool Ow = false> const T* set(Loc l, std::string s) const { set(l); set(sym(std::move(s))); return this; }    \
-    template<bool Ow = false>       T* set(Loc l, std::string s)       { set(l); set(sym(std::move(s))); return this; }    \
-    template<bool Ow = false> const T* set(Dbg d) const { set(d.loc, d.sym); return this; }                                \
-    template<bool Ow = false>       T* set(Dbg d)       { set(d.loc, d.sym); return this; }
+#define THORIN_SETTERS_(T)                                                                                                   \
+public:                                                                                                                      \
+    template<bool Ow = false> const T* set(Loc l               ) const { if (Ow || !dbg_.loc()) dbg_.set(l); return this; } \
+    template<bool Ow = false>       T* set(Loc l               )       { if (Ow || !dbg_.loc()) dbg_.set(l); return this; } \
+    template<bool Ow = false> const T* set(       Sym s        ) const { if (Ow || !dbg_.sym()) dbg_.set(s); return this; } \
+    template<bool Ow = false>       T* set(       Sym s        )       { if (Ow || !dbg_.sym()) dbg_.set(s); return this; } \
+    template<bool Ow = false> const T* set(       std::string s) const {         set(sym(std::move(s))); return this; }      \
+    template<bool Ow = false>       T* set(       std::string s)       {         set(sym(std::move(s))); return this; }      \
+    template<bool Ow = false> const T* set(Loc l, Sym s        ) const { set(l); set(s);                 return this; }      \
+    template<bool Ow = false>       T* set(Loc l, Sym s        )       { set(l); set(s);                 return this; }      \
+    template<bool Ow = false> const T* set(Loc l, std::string s) const { set(l); set(sym(std::move(s))); return this; }      \
+    template<bool Ow = false>       T* set(Loc l, std::string s)       { set(l); set(sym(std::move(s))); return this; }      \
+    template<bool Ow = false> const T* set(Dbg d) const { set(d.loc(), d.sym()); return this; }                              \
+    template<bool Ow = false>       T* set(Dbg d)       { set(d.loc(), d.sym()); return this; }
 // clang-format on
 
 #ifdef DOXYGEN
@@ -186,21 +193,27 @@ public:                                                                         
 #    define THORIN_SETTERS(T) THORIN_SETTERS_(T)
 #endif
 
-#define THORIN_DEF_MIXIN(T)                        \
-public:                                            \
-    THORIN_SETTERS(T)                              \
-    Ref rebuild(World&, Ref, Defs) const override; \
-    static constexpr auto Node = Node::T;          \
-                                                   \
-private:                                           \
+#define THORIN_DEF_MIXIN(T)                         \
+public:                                             \
+    THORIN_SETTERS(T)                               \
+    static constexpr auto Node = Node::T;           \
+                                                    \
+private:                                            \
+    Ref rebuild_(World&, Ref, Defs) const override; \
     friend class World;
 
 /// Base class for all Def%s.
 /// The data layout (see World::alloc and Def::partial_ops) looks like this:
 /// ```
 /// Def| type | op(0) ... op(num_ops-1) |
-///    |---------partial_ops------------|
-///           |-------extended_ops------|
+///           |-----------ops-----------|
+///    |----------partial_ops-----------|
+///
+///              extended_ops
+///    |--------------------------------| if type() != nullptr &&  is_set()
+///           |-------------------------| if type() == nullptr &&  is_set()
+///    |------|                           if type() != nullptr && !is_set()
+///    ||                                 if type() == nullptr && !is_set()
 /// ```
 /// @attention This means that any subclass of Def **must not** introduce additional members.
 /// @see @ref mut
@@ -211,8 +224,8 @@ private:
 
 protected:
     Def(World*, node_t, const Def* type, Defs ops, flags_t flags); ///< Constructor for an *immutable* Def.
-    Def(node_t n, const Def* type, Defs ops, flags_t flags);
-    Def(node_t, const Def* type, size_t num_ops, flags_t flags); ///< Constructor for a *mutable* Def.
+    Def(node_t n, const Def* type, Defs ops, flags_t flags);       ///< As above but World retrieved from @p type.
+    Def(node_t, const Def* type, size_t num_ops, flags_t flags);   ///< Constructor for a *mutable* Def.
     virtual ~Def() = default;
 
 public:
@@ -385,8 +398,32 @@ public:
     ///@{
     /// Retrieve Var for *mutables*.
     /// @see @ref proj
-    Ref var();
     THORIN_PROJ(var, )
+    /// Not necessarily a Var: E.g., if the return type is `[]`, this will yield `()`.
+    Ref var();
+    /// Only returns not `nullptr`, if Var of this mutable has ever been created.
+    const Var* has_var() { return var_; }
+    /// As above if `this` is a *mutable*.
+    const Var* has_var() const {
+        if (auto mut = isa_mut()) return mut->has_var();
+        return nullptr;
+    }
+    ///@}
+
+    /// @name Free Vars and Muts
+    ///@{
+    /// * local_muts()/local_vars() are Var%s/mutables reachable by following *immutable* extended_ops().
+    /// * local_muts()/local_vars() are cached and hash-consed.
+    /// * free_vars() compute a global solution, i.e., by transitively following *mutables* as well.
+    /// * free_vars() are computed on demand and cached.
+    ///   They will be transitively invalidated by following fv_consumers(), if a mutable is mutated.
+    Muts local_muts() const;
+    Vars local_vars() const { return mut_ ? Vars() : vars_.local; }
+    Vars free_vars() const;
+    Vars free_vars();
+    bool is_open() const;   ///< Has free_vars()?
+    bool is_closed() const; ///< Has no free_vars()?
+    Muts fv_consumers() { return muts_.fv_consumers; }
     ///@}
 
     /// @name external
@@ -427,8 +464,8 @@ public:
     /// @name Dbg Getters
     ///@{
     Dbg dbg() const { return dbg_; }
-    Loc loc() const { return dbg_.loc; }
-    Sym sym() const { return dbg_.sym; }
+    Loc loc() const { return dbg_.loc(); }
+    Sym sym() const { return dbg_.sym(); }
     std::string unique_name() const; ///< name + "_" + Def::gid
     ///@}
 
@@ -452,10 +489,15 @@ public:
 
     /// @name Rebuild
     ///@{
-    virtual Def* stub(World&, Ref) { fe::unreachable(); }
+    Def* stub(World& w, Ref type) { return stub_(w, type)->set(dbg()); }
+    Def* stub(Ref type) { return stub(world(), type); }
 
     /// Def::rebuild%s this Def while using @p new_op as substitute for its @p i'th Def::op
-    virtual Ref rebuild(World& w, Ref type, Defs ops) const = 0;
+    Ref rebuild(World& w, Ref type, Defs ops) const {
+        assert(isa_imm());
+        return rebuild_(w, type, ops)->set(dbg());
+    }
+    Ref rebuild(Ref type, Defs ops) const { return rebuild(world(), type, ops); }
 
     /// Tries to make an immutable from a mutable.
     /// This usually works if the mutable isn't recursive and its var isn't used.
@@ -482,6 +524,18 @@ public:
     std::ostream& stream(std::ostream&, int max) const;
     ///@}
 
+    /// @name dot
+    ///@{
+    /// Dumps DOT to @p os while obeying maximum recursion depth of @p max.
+    /// If @p types is `true`, Def::type() dependencies will be followed as well.
+    void dot(std::ostream& os, uint32_t max = 0xFFFFFF, bool types = false) const;
+    /// Same as above but write to @p file or `std::cout` if @p file is `nullptr`.
+    void dot(const char* file = nullptr, uint32_t max = 0xFFFFFF, bool types = false) const;
+    void dot(const std::string& file, uint32_t max = 0xFFFFFF, bool types = false) const {
+        return dot(file.c_str(), max, types);
+    }
+    ///@}
+
 protected:
     /// @name Wrappers for World::sym
     ///@{
@@ -492,6 +546,12 @@ protected:
     ///@}
 
 private:
+    virtual Def* stub_(World&, Ref) { fe::unreachable(); }
+    virtual Ref rebuild_(World& w, Ref type, Defs ops) const = 0;
+
+    Vars free_vars(bool&, uint32_t run);
+    void validate();
+    void invalidate();
     Def* unset(size_t i);
     const Def** ops_ptr() const {
         return reinterpret_cast<const Def**>(reinterpret_cast<char*>(const_cast<Def*>(this + 1)));
@@ -499,6 +559,7 @@ private:
     void finalize();
     bool equal(const Def* other) const;
 
+    uint32_t mark_ = 0;
 #ifndef NDEBUG
     size_t curr_op_ = 0;
 #endif
@@ -506,8 +567,9 @@ private:
 protected:
     mutable Dbg dbg_;
     union {
-        NormalizeFn normalizer_; ///< Axiom%s use this member to store their normalizer.
-        const Axiom* axiom_;     /// Curried App%s of Axiom%s use this member to propagate the Axiom.
+        NormalizeFn normalizer_; ///< Axiom only: Axiom%s use this member to store their normalizer.
+        const Axiom* axiom_;     ///< App only: Curried App%s of Axiom%s use this member to propagate the Axiom.
+        const Var* var_;         ///< Mutable only: Var of a mutable.
         mutable World* world_;
     };
     flags_t flags_;
@@ -519,11 +581,26 @@ private:
     bool mut_      : 1;
     bool external_ : 1;
     unsigned dep_  : 5;
-    bool padding_  : 1;
+    bool valid_    : 1;
     hash_t hash_;
     u32 gid_;
     u32 num_ops_;
     mutable Uses uses_;
+
+    union LocalOrFreeVars {
+        LocalOrFreeVars() {}
+
+        Vars local; // Mutable only.
+        Vars free;  // Immutable only.
+    } vars_;
+
+    union LocalOrConsumerMuts {
+        LocalOrConsumerMuts() {}
+
+        Muts local;        // Mutable only.
+        Muts fv_consumers; // Immutable only.
+    } muts_;
+
     const Def* type_;
 
     friend class World;
@@ -534,15 +611,6 @@ private:
 ///@{
 std::ostream& operator<<(std::ostream&, const Def*);
 std::ostream& operator<<(std::ostream&, Ref);
-///@}
-
-/// @name Formatted Output
-///@{
-/// Uses @p def->loc() as Loc%ation.
-template<class T = std::logic_error, class... Args>
-[[noreturn]] void error(const Def* def, const char* fmt, Args&&... args) {
-    error(def->loc(), fmt, std::forward<Args&&>(args)...);
-}
 ///@}
 
 /// @name DefDef
@@ -726,9 +794,11 @@ public:
     bool is_mutable() const { return flags(); }
     ///@}
 
-    Global* stub(World&, Ref) override;
-
+    Global* stub(Ref type) { return stub_(world(), type)->set(dbg()); }
     THORIN_DEF_MIXIN(Global)
+
+private:
+    Global* stub_(World&, Ref) override;
 };
 
 hash_t UseHash::operator()(Use use) const { return hash_combine(hash_begin(u16(use.index())), hash_t(use->gid())); }

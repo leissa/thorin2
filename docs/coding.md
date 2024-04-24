@@ -70,7 +70,10 @@ private:
 
 ## Debugging
 
-For logging and automatic firing of breakpoints refer to the [Command-Line Reference](@ref clidebug).
+@see [Command-Line Reference](@ref clidebug)
+@see [GDB: A quick guide to make your debugging easier](https://johnnysswlab.com/gdb-a-quick-guide-to-make-your-debugging-easier/)
+@see [Advanced GDB Usage](https://interrupt.memfault.com/blog/advanced-gdb)
+@see [Debugging with GDB](https://sourceware.org/gdb/current/onlinedocs/gdb.html/)
 
 ### Dumping
 
@@ -80,7 +83,7 @@ Note that you can simply invoke
 * thorin::World::dump,
 * thorin::World::write, ...
 
-from within [GDB](https://ftp.gnu.org/old-gnu/Manuals/gdb/html_node/gdb_30.html):
+from within GDB:
 ```gdb
 (gdb) call def->dump()
 (gdb) call def->dump(0)
@@ -92,7 +95,7 @@ What is more, you can adjust the output behavior directly from within GDB by mod
 ```gdb
 (gdb) call world.flags().dump_gid = 1
 (gdb) call world.flags().dump_recursive = 1
-(gdb) call world.log().level = 4
+(gdb) call world().log().max_level_ = 4
 ```
 Another useful feature is to retrieve a `Def*` from a thorin::Def::gid via thorin::World::gid2def:
 ```gdb
@@ -100,6 +103,18 @@ Another useful feature is to retrieve a `Def*` from a thorin::Def::gid via thori
 $1 = ...
 (gdb) $1->dump();
 ```
+
+### Display DOT
+
+`scripts/xdot.gdb` provides custom GDB commands to create a [DOT](https://graphviz.org/) graph and display it through [xdot](https://github.com/jrfonseca/xdot.py).
+Just source `scripts/xdot.gdb` in your `~/.gdbinit`:
+```gdb
+source ~/thorin2/scripts/xdot.gdb
+```
+Here is the `xdot` GDB command in action:
+![cgdb session using xdot](gdb-xdot.png)
+
+\include "xdot-help.gdb"
 
 ### Conditional Breakpoints
 
@@ -113,7 +128,7 @@ break foo.cpp:23 if def->gid() == 42
 ### Catching Throw
 
 For several things like errors in Thorin's front end, Thorin relies on C++ exceptions for error handling.
-Simply, do this to encounter them within GDB:
+Do this to encounter them within GDB:
 ```gdb
 catch throw
 ```
@@ -121,7 +136,7 @@ catch throw
 ### Valgrind & GDB
 
 If you encounter memory related problems, you might want to run the program with [Valgrind's GDB server](https://valgrind.org/docs/manual/manual-core-adv.html).
-Simply launch the program like this
+Launch the program like this
 ```sh
 valgrind --vgdb=yes --vgdb-error=0 thorin-gtest
 ```
@@ -216,7 +231,7 @@ to configure the project.
 ### add_thorin_plugin
 
 Registers a new Thorin plugin.
-```
+```cmake
 add_thorin_plugin(<plugin-name>
     [SOURCES <source>...]
     [PRIVATE <private-item>...]

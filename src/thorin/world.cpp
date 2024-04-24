@@ -6,7 +6,6 @@
 #include "thorin/rewrite.h"
 #include "thorin/tuple.h"
 
-#include "thorin/analyses/scope.h"
 #include "thorin/util/util.h"
 
 namespace thorin {
@@ -44,10 +43,11 @@ World::World(Driver* driver, const State& state)
     data_.type_0      = type(lit_univ_0());
     data_.type_1      = type(lit_univ_1());
     data_.type_bot    = insert<Bot>(0, type());
+    data_.type_top    = insert<Top>(0, type());
     data_.sigma       = insert<Sigma>(0, type(), Defs{})->as<Sigma>();
     data_.tuple       = insert<Tuple>(0, sigma(), Defs{})->as<Tuple>();
-    data_.type_nat    = insert<Nat>(0, *this);
-    data_.type_idx    = insert<Idx>(0, pi(type_nat(), type()));
+    data_.type_nat    = insert<thorin::Nat>(0, *this);
+    data_.type_idx    = insert<thorin::Idx>(0, pi(type_nat(), type()));
     data_.top_nat     = insert<Top>(0, type_nat());
     data_.lit_nat_0   = lit_nat(0);
     data_.lit_nat_1   = lit_nat(1);
@@ -78,7 +78,9 @@ Sym World::sym(std::string_view s) { return driver().sym(s); }
 Sym World::sym(const std::string& s) { return driver().sym(s); }
 
 const Def* World::register_annex(flags_t f, const Def* def) {
-    auto plugin = Annex::demangle(*this, f);
+    // TODO enable again
+    /*DLOG("register: 0x{f} -> {}", f, def);*/
+    auto plugin = Annex::demangle(driver(), f);
     if (driver().is_loaded(plugin)) {
         assert_emplace(move_.annexes, f, def);
         return def;
@@ -91,14 +93,16 @@ const Def* World::register_annex(flags_t f, const Def* def) {
 
 const Type* World::type(Ref level) {
     if (!level->type()->isa<Univ>())
-        error(level, "argument `{}` to `.Type` must be of type `.Univ` but is of type `{}`", level, level->type());
+        error(level->loc(), "argument `{}` to `.Type` must be of type `.Univ` but is of type `{}`", level,
+              level->type());
 
     return unify<Type>(1, level)->as<Type>();
 }
 
 Ref World::uinc(Ref op, level_t offset) {
     if (!op->type()->isa<Univ>())
-        error(op, "operand '{}' of a universe increment must be of type `.Univ` but is of type `{}`", op, op->type());
+        error(op->loc(), "operand '{}' of a universe increment must be of type `.Univ` but is of type `{}`", op,
+              op->type());
 
     if (auto l = Lit::isa(op)) return lit_univ(*l + 1);
     return unify<UInc>(1, op, offset);
@@ -122,11 +126,11 @@ template<Sort sort> Ref World::umax(Defs ops_) {
             if (auto type = r->isa<Type>())
                 r = type->level();
             else
-                error(r, "operand '{}' must be a .Type of some level", r);
+                error(r->loc(), "operand '{}' must be a .Type of some level", r);
         }
 
         if (!r->type()->isa<Univ>())
-            error(r, "operand '{}' of a universe max must be of type '.Univ' but is of type '{}'", r, r->type());
+            error(r->loc(), "operand '{}' of a universe max must be of type '.Univ' but is of type '{}'", r, r->type());
 
         op = r;
 
@@ -155,7 +159,8 @@ Ref World::var(Ref type, Def* mut) {
         if (auto l = Lit::isa(s); l && l == 1) return lit_0_1();
     }
 
-    return unify<Var>(1, type, mut);
+    if (auto var = mut->var_) return var;
+    return mut->var_ = unify<Var>(1, type, mut);
 }
 
 Ref World::iapp(Ref callee, Ref arg) {
@@ -183,16 +188,23 @@ Ref World::app(Ref callee, Ref arg) {
     Infer::eliminate(Vector<Ref*>{&callee, &arg});
     auto pi = callee->type()->isa<Pi>();
 
-    if (!pi) error(callee, "called expression '{}' : '{}' is not of function type", callee, callee->type());
-    if (!Check::assignable(pi->dom(), arg))
-        error(arg, "cannot pass argument \n'{}' of type \n'{}' to \n'{}' of domain \n'{}'", arg, arg->type(), callee,
-              pi->dom());
+    if (!pi) {
+        throw Error()
+            .error(callee->loc(), "called expression not of function type")
+            .error(callee->loc(), "'{}' <--- callee type", callee->type());
+    }
+    if (!Check::assignable(pi->dom(), arg)) {
+        throw Error()
+            .error(arg->loc(), "cannot apply argument to callee")
+            .note(callee->loc(), "callee: '{}'", callee)
+            .note(arg->loc(), "argument: '{}'", arg)
+            .note(callee->loc(), "vvv domain type vvv\n'{}'\n'{}'", pi->dom(), arg->type())
+            .note(arg->loc(), "^^^ argument type ^^^");
+    }
 
     if (auto imm = callee->isa_imm<Lam>()) return imm->body();
     if (auto lam = callee->isa_mut<Lam>(); lam && lam->is_set() && lam->filter() != lit_ff()) {
-        Scope scope(lam);
-        ScopeRewriter rw(scope);
-        rw.map(lam->var(), arg);
+        VarRewriter rw(lam->var(), arg);
         if (rw.rewrite(lam->filter()) == lit_tt()) {
             DLOG("partial evaluate: {} ({})", lam, arg);
             return rw.rewrite(lam->body());
@@ -221,7 +233,7 @@ Ref World::sigma(Defs ops) {
     if (n == 0) return sigma();
     if (n == 1) return ops[0];
     if (auto uni = Check::is_uniform(ops)) return arr(n, uni);
-    return unify<Sigma>(ops.size(), umax<Sort::Type>(ops), ops);
+    return unify<Sigma>(ops.size(), Sigma::infer(*this, ops), ops);
 }
 
 Ref World::tuple(Defs ops) {
@@ -230,7 +242,7 @@ Ref World::tuple(Defs ops) {
     auto sigma = infer_sigma(*this, ops);
     auto t     = tuple(sigma, ops);
     if (!Check::assignable(sigma, t))
-        error(t, "cannot assign tuple '{}' of type '{}' to incompatible tuple type '{}'", t, t->type(), sigma);
+        error(t->loc(), "cannot assign tuple '{}' of type '{}' to incompatible tuple type '{}'", t, t->type(), sigma);
 
     return t;
 }
@@ -272,7 +284,7 @@ Ref World::tuple(Ref type, Defs ops) {
 
 Ref World::tuple(Sym sym) {
     DefVec defs;
-    std::ranges::transform(sym, std::back_inserter(defs), [this](auto c) { return lit_int(8, c); });
+    std::ranges::transform(sym, std::back_inserter(defs), [this](auto c) { return lit_i8(c); });
     return tuple(defs);
 }
 
@@ -303,7 +315,7 @@ Ref World::extract(Ref d, Ref index) {
     if (auto pack = d->isa_imm<Pack>()) return pack->body();
 
     if (!Check::alpha(type->arity(), size))
-        error(index, "index '{}' does not fit within arity '{}'", index, type->arity());
+        error(index->loc(), "index '{}' does not fit within arity '{}'", index, type->arity());
 
     // extract(insert(x, index, val), index) -> val
     if (auto insert = d->isa<Insert>()) {
@@ -320,8 +332,7 @@ Ref World::extract(Ref d, Ref index) {
 
         if (auto sigma = type->isa<Sigma>()) {
             if (auto mut_sigma = sigma->isa_mut<Sigma>()) {
-                Scope scope(mut_sigma);
-                auto t = rewrite(sigma->op(*i), mut_sigma->var(), d, scope);
+                auto t = VarRewriter(mut_sigma->var(), d).rewrite(sigma->op(*i));
                 return unify<Extract>(2, t, d, index);
             }
 
@@ -345,12 +356,16 @@ Ref World::insert(Ref d, Ref index, Ref val) {
     auto lidx = Lit::isa(index);
 
     if (!Check::alpha(type->arity(), size))
-        error(index, "index '{}' does not fit within arity '{}'", index, type->arity());
+        error(index->loc(), "index '{}' does not fit within arity '{}'", index, type->arity());
 
     if (lidx) {
-        auto target_type = type->proj(*lidx);
-        if (!Check::assignable(target_type, val))
-            error(val, "value of type {} is not assignable to type {}", val->type(), target_type);
+        auto elem_type = type->proj(*lidx);
+        if (!Check::assignable(elem_type, val)) {
+            throw Error()
+                .error(val->loc(), "value to be inserted not assignable to element")
+                .note(val->loc(), "vvv value type vvv \n'{}'\n'{}'", val->type(), elem_type)
+                .note(val->loc(), "^^^ element type ^^^", elem_type);
+        }
     }
 
     if (auto l = Lit::isa(size); l && *l == 1)
@@ -378,7 +393,7 @@ Ref World::insert(Ref d, Ref index, Ref val) {
 
 // TODO merge this code with pack
 Ref World::arr(Ref shape, Ref body) {
-    if (!is_shape(shape->type())) error(shape, "expected shape but got '{}' of type '{}'", shape, shape->type());
+    if (!is_shape(shape->type())) error(shape->loc(), "expected shape but got '{}' of type '{}'", shape, shape->type());
 
     if (auto a = Lit::isa(shape)) {
         if (*a == 0) return sigma();
@@ -405,7 +420,7 @@ Ref World::arr(Ref shape, Ref body) {
 }
 
 Ref World::pack(Ref shape, Ref body) {
-    if (!is_shape(shape->type())) error(shape, "expected shape but got '{}' of type '{}'", shape, shape->type());
+    if (!is_shape(shape->type())) error(shape->loc(), "expected shape but got '{}' of type '{}'", shape, shape->type());
 
     if (auto a = Lit::isa(shape)) {
         if (*a == 0) return tuple();
@@ -437,9 +452,9 @@ Ref World::pack(Defs shape, Ref body) {
 const Lit* World::lit(Ref type, u64 val) {
     if (auto size = Idx::size(type)) {
         if (auto s = Lit::isa(size)) {
-            if (*s != 0 && val >= *s) error(type, "index '{}' does not fit within arity '{}'", size, val);
+            if (*s != 0 && val >= *s) error(type->loc(), "index '{}' does not fit within arity '{}'", size, val);
         } else if (val != 0) { // 0 of any size is allowed
-            error(type, "cannot create literal '{}' of '.Idx {}' as size is unknown", val, size);
+            error(type->loc(), "cannot create literal '{}' of '.Idx {}' as size is unknown", val, size);
         }
     }
 
@@ -548,6 +563,12 @@ Ref World::gid2def(u32 gid) {
     auto i = std::ranges::find_if(move_.defs, [=](auto def) { return def->gid() == gid; });
     if (i == move_.defs.end()) return nullptr;
     return *i;
+}
+
+World& World::verify() {
+    for (auto [_, mut] : externals()) assert(mut->is_closed() && mut->is_set());
+    for (auto [_, annex] : annexes()) assert(annex->is_closed());
+    return *this;
 }
 
 #endif
